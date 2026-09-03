@@ -1,0 +1,54 @@
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+
+    # pgvector so the schema migration is exercised on every commit, not just
+    # the pure Python units.
+    services:
+      db:
+        image: pgvector/pgvector:pg16
+        env:
+          POSTGRES_USER: citeline
+          POSTGRES_PASSWORD: citeline
+          POSTGRES_DB: citeline
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U citeline -d citeline"
+          --health-interval 5s --health-timeout 3s --health-retries 12
+
+    env:
+      CITELINE_DATABASE_URL: postgresql://citeline:citeline@127.0.0.1:5432/citeline
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Install
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e ".[dev]"
+
+      - name: Lint
+        run: |
+          ruff check src eval tests
+          ruff format --check src eval tests
+
+      - name: Typecheck
+        run: mypy src/citeline
+
+      - name: Unit tests
+        run: pytest -q
+
+      - name: Migration applies to a real pgvector database
+        run: citeline migrate

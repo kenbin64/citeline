@@ -1,0 +1,31 @@
+# Local development stack. The production deployment does not use Docker: it
+# runs Postgres and Ollama on the host under systemd. This file exists so anyone
+# cloning the repo can get a working database in one command without installing
+# Postgres or pgvector by hand.
+#
+#   docker compose up -d
+#   make install migrate ingest
+#
+# Ollama is expected on the host at 127.0.0.1:11434 rather than in a container,
+# because on a CPU only machine the container adds nothing and the model cache
+# is better shared with whatever else uses it.
+
+services:
+  db:
+    image: pgvector/pgvector:pg16
+    environment:
+      POSTGRES_USER: citeline
+      POSTGRES_PASSWORD: citeline
+      POSTGRES_DB: citeline
+    ports:
+      - "127.0.0.1:5432:5432"
+    volumes:
+      - citeline-pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U citeline -d citeline"]
+      interval: 5s
+      timeout: 3s
+      retries: 12
+
+volumes:
+  citeline-pgdata:

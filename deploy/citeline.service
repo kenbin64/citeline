@@ -1,0 +1,44 @@
+# /etc/systemd/system/citeline.service
+#
+# The API. Bound to loopback only: nginx terminates TLS and proxies to it, so
+# the service itself is never exposed directly.
+
+[Unit]
+Description=citeline retrieval augmented QA API
+After=network.target postgresql.service
+Wants=postgresql.service
+
+[Service]
+Type=simple
+User=butterfly
+Group=butterfly
+WorkingDirectory=/home/butterfly/apps/citeline
+
+# The database credential lives here, mode 600, outside the repo.
+EnvironmentFile=/home/butterfly/apps/citeline/.env
+
+ExecStart=/home/butterfly/apps/citeline/.venv/bin/uvicorn citeline.api.main:app \
+    --host 127.0.0.1 --port 8811 --workers 1 --log-level warning
+
+Restart=on-failure
+RestartSec=5
+
+# One worker is deliberate. Generation is CPU bound and single threaded from the
+# service's point of view, so extra workers would only queue behind Ollama while
+# multiplying the database connection pool.
+
+# Hardening. The service reads its own directory and talks to loopback; it has
+# no business writing anywhere else on the filesystem.
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=read-only
+ReadWritePaths=/home/butterfly/apps/citeline
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
+MemoryMax=2G
+
+[Install]
+WantedBy=multi-user.target
