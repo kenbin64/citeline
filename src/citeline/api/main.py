@@ -170,15 +170,29 @@ async def query(req: QueryRequest, request: Request) -> QueryResponse:
             r.lexical_matched or not cfg.require_lexical_match
         )
         QUERIES.labels(outcome="abstained" if not passed else "retrieval_only").inc()
-        reason = (
-            f"best passage similarity {r.max_similarity:.3f} is below the "
-            f"{cfg.min_similarity} threshold, so the corpus does not appear to "
-            "cover this question"
-            if not passed
-            else "the corpus covers this question, but this host does not "
-            "generate answers on demand; see /examples for questions answered "
-            "through the full pipeline"
-        )
+        # Say which gate actually blocked it. Reporting a similarity failure for
+        # a lexical block produced a demonstrably false sentence in public: a
+        # question whose best passage scored 0.667 was told that 0.667 was below
+        # 0.62. Two gates, two reasons.
+        if passed:
+            reason = (
+                "the corpus covers this question, but this host does not "
+                "generate answers on demand; see /examples for questions "
+                "answered through the full pipeline"
+            )
+        elif r.max_similarity < cfg.min_similarity:
+            reason = (
+                f"best passage similarity {r.max_similarity:.3f} is below the "
+                f"{cfg.min_similarity} threshold, so the corpus does not appear "
+                "to cover this question"
+            )
+        else:
+            reason = (
+                f"the closest passage scored {r.max_similarity:.3f}, above the "
+                f"{cfg.min_similarity} similarity threshold, but no passage "
+                "contains the question's own terms, so the match is by topic "
+                "rather than by subject"
+            )
         answer = (
             "I do not have a sourced answer to that. The indexed regulations do "
             "not contain a passage that answers it, so rather than guess, this "

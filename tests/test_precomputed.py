@@ -110,3 +110,37 @@ def test_save_round_trips(tmp_path, monkeypatch) -> None:
     assert written["answers"][0]["question"] == "Q one?"
     # save() refreshes the cache, so the new answer is immediately reachable.
     assert precomputed.get("q one") is not None
+
+
+def test_the_two_gate_reasons_are_distinguished() -> None:
+    """A blocked question must be told WHY it was blocked, correctly.
+
+    This went out in public saying "best passage similarity 0.667 is below the
+    0.62 threshold", which is arithmetic nonsense. The question had been blocked
+    by the lexical gate, not the similarity gate, and the message blamed the
+    wrong one. On a service whose entire pitch is that it does not state things
+    it cannot support, printing a false sentence is the worst possible bug.
+    """
+    import re
+    from pathlib import Path
+
+    src = Path(__file__).resolve().parents[1] / "src" / "citeline" / "api" / "main.py"
+    text = src.read_text(encoding="utf-8")
+
+    at = text.index("if not cfg.serve_generation:")
+    block = text[at : at + 2600]
+
+    # Three outcomes, three distinct explanations.
+    assert "elif r.max_similarity < cfg.min_similarity:" in block, (
+        "the similarity reason must be guarded by an actual similarity comparison"
+    )
+    assert "no passage" in block and "contains the question's own terms" in block, (
+        "a lexical block must say so rather than blaming similarity"
+    )
+    # The similarity sentence must not be reachable when similarity passed.
+    similarity_sentence = "is below the"
+    guard_pos = block.index("elif r.max_similarity < cfg.min_similarity:")
+    assert block.index(similarity_sentence) > guard_pos, (
+        "the 'is below the threshold' wording must sit inside the similarity branch"
+    )
+    assert re.search(r"if passed:", block), "the passing case is handled first"
