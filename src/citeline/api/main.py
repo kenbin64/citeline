@@ -14,8 +14,8 @@ testable.
 
 import time
 from collections import defaultdict, deque
-from contextlib import asynccontextmanager
 from collections.abc import AsyncIterator
+from contextlib import asynccontextmanager
 
 import httpx
 from fastapi import FastAPI, HTTPException, Request
@@ -25,11 +25,13 @@ from prometheus_client import CONTENT_TYPE_LATEST, generate_latest
 
 from .. import db
 from ..config import settings
+from ..generate import precomputed
 from ..generate.answer import answer_question
 from ..obs import logging as obslog
 from ..obs.metrics import CORPUS_CHUNKS, CORPUS_DOCS, QUERIES, TOP_SCORE
-from ..retrieve.hybrid import retrieve
+from ..retrieve.hybrid import RetrievalResult, retrieve
 from .schemas import (
+    ConsideredOut,
     HealthResponse,
     QueryRequest,
     QueryResponse,
@@ -118,9 +120,89 @@ async def _log_query(
         )
 
 
+def _as_str(value: object) -> str | None:
+    """corpus_stats() returns values straight from the database, where a date is
+    a date and a version may be an int. The response model promises a string, so
+    the conversion happens here rather than being asserted away."""
+    return None if value is None else str(value)
+
+
+def _considered(result: RetrievalResult) -> list[ConsideredOut]:
+    """The retriever's candidates in the shape both endpoints return.
+
+    Written once rather than twice so /query and /retrieve can never drift into
+    describing the same passage differently, and typed rather than left as bare
+    dicts so the two response models keep checking it.
+    """
+    return [
+        ConsideredOut(
+            ref=c.source_ref,
+            title=c.title,
+            score=round(c.score, 5),
+            similarity=round(c.similarity, 4) if c.similarity is not None else None,
+            found_by=c.found_by,
+        )
+        for c in result.candidates
+    ]
+
+
 @app.post("/query", response_model=QueryResponse)
 async def query(req: QueryRequest, request: Request) -> QueryResponse:
     _rate_limit(request)
+    cfg = settings()
+
+    # A curated question we already have an answer for. Served instantly and
+    # LABELLED as precomputed, because a stored answer presented as a live one
+    # would be its own small dishonesty in a project about not bluffing.
+    stored = precomputed.get(req.question)
+    if stored is not None:
+        QUERIES.labels(outcome="precomputed").inc()
+        return QueryResponse(**{**stored, "precomputed": True})
+
+    # Generation is disabled on the public host. Measured there: one grounded
+    # answer over a realistic prompt ran past four minutes, because the CPU is
+    # a virtual one with no AVX or SSE4.2 and llama.cpp falls back to scalar
+    # arithmetic. Rather than hold a request open for minutes, answer with what
+    # is genuinely fast: the live retrieval and the gate decision.
+    if not cfg.serve_generation:
+        r = await retrieve(req.question)
+        passed = r.max_similarity >= cfg.min_similarity and (
+            r.lexical_matched or not cfg.require_lexical_match
+        )
+        QUERIES.labels(outcome="abstained" if not passed else "retrieval_only").inc()
+        reason = (
+            f"best passage similarity {r.max_similarity:.3f} is below the "
+            f"{cfg.min_similarity} threshold, so the corpus does not appear to "
+            "cover this question"
+            if not passed
+            else "the corpus covers this question, but this host does not "
+            "generate answers on demand; see /examples for questions answered "
+            "through the full pipeline"
+        )
+        answer = (
+            "I do not have a sourced answer to that. The indexed regulations do "
+            "not contain a passage that answers it, so rather than guess, this "
+            "returns nothing."
+            if not passed
+            else "Retrieval ran and found supporting passages, listed below. "
+            "This host does not run the language model on demand, so no prose "
+            "answer was generated for this question."
+        )
+        return QueryResponse(
+            question=req.question,
+            answer=answer,
+            abstained=not passed,
+            reason=reason,
+            citations=[],
+            considered=_considered(r),
+            top_score=round(r.top_score, 5),
+            max_similarity=round(r.max_similarity, 4),
+            retrieve_ms=r.retrieve_ms,
+            generate_ms=0,
+            model="",
+            precomputed=False,
+        )
+
     result = await answer_question(req.question)
     TOP_SCORE.observe(result.top_score)
     QUERIES.labels(outcome="abstained" if result.abstained else "answered").inc()
@@ -157,16 +239,7 @@ async def retrieve_only(req: QueryRequest, request: Request) -> RetrieveResponse
 
     return RetrieveResponse(
         question=req.question,
-        candidates=[
-            {
-                "ref": c.source_ref,
-                "title": c.title,
-                "score": round(c.score, 5),
-                "similarity": round(c.similarity, 4) if c.similarity is not None else None,
-                "found_by": c.found_by,
-            }
-            for c in result.candidates
-        ],
+        candidates=_considered(result),
         top_score=round(result.top_score, 5),
         max_similarity=round(result.max_similarity, 4),
         retrieve_ms=result.retrieve_ms,
@@ -176,6 +249,24 @@ async def retrieve_only(req: QueryRequest, request: Request) -> RetrieveResponse
         threshold=cfg.min_similarity,
         gate_reason=gate_reason,
     )
+
+
+@app.get("/examples")
+async def examples() -> dict:
+    """The questions that have a precomputed answer.
+
+    The demo page renders these as one click buttons. Any other question still
+    works: retrieval runs live against the real index.
+    """
+    store = precomputed.load()
+    return {
+        "count": len(store),
+        "questions": [item["question"] for item in store.values()],
+        "note": (
+            "These were answered offline through the same pipeline the service "
+            "uses, because this host has no GPU. Retrieval is always live."
+        ),
+    }
 
 
 @app.get("/healthz", response_model=HealthResponse)
@@ -207,8 +298,8 @@ async def healthz() -> HealthResponse:
         generation_model=gen_ok,
         documents=int(stats.get("documents") or 0),
         chunks=int(stats.get("chunks") or 0),
-        corpus_version=stats.get("version"),
-        last_ingest=stats.get("last_ingest"),
+        corpus_version=_as_str(stats.get("version")),
+        last_ingest=_as_str(stats.get("last_ingest")),
     )
 
 
@@ -228,8 +319,8 @@ async def stats() -> StatsResponse:
         documents=int(corpus.get("documents") or 0),
         chunks=int(corpus.get("chunks") or 0),
         unembedded=int(corpus.get("unembedded") or 0),
-        corpus_version=corpus.get("version"),
-        last_ingest=corpus.get("last_ingest"),
+        corpus_version=_as_str(corpus.get("version")),
+        last_ingest=_as_str(corpus.get("last_ingest")),
         queries_total=int(row["total"] or 0),
         abstention_rate=round(float(row["abstain_rate"] or 0), 4),
         median_retrieve_ms=int(row["p50"]) if row["p50"] is not None else None,

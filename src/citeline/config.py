@@ -24,6 +24,16 @@ class Settings(BaseSettings):
     generate_model: str = "llama3.2:3b"
     generate_timeout_s: float = 120.0
 
+    # Answers computed ahead of time for the public demo. Empty means "use the
+    # default location next to the package". See generate/precomputed.py for
+    # why the demo does not generate on demand on this host.
+    precomputed_path: str = ""
+    # When true the service will not call the language model from /query at
+    # all: a question without a precomputed answer comes back as retrieval plus
+    # the gate decision. This is what the public deployment runs, because a
+    # request that takes minutes is worse than an honest refusal to generate.
+    serve_generation: bool = True
+
     # --- chunking ---
     chunk_target_tokens: int = 350
     chunk_overlap_tokens: int = 60

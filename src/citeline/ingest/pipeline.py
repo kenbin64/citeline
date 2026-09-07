@@ -181,7 +181,7 @@ async def ingest_documents(docs: list[SourceDoc], embed_concurrency: int = 4) ->
             )
 
             bad = False
-            for c, v in zip(good, vectors, strict=True):
+            for _chunk, v in zip(good, vectors, strict=True):
                 erej = quality.check_embedding(v, cfg.embed_dim, doc.source_ref)
                 if erej:
                     s.quality_failures += 1

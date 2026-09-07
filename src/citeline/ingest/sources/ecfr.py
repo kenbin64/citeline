@@ -20,7 +20,6 @@ import httpx
 from lxml import etree
 from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_exponential
 
-
 BASE = "https://www.ecfr.gov/api/versioner/v1"
 
 _WS = re.compile(r"[ \t\r\f\v]+")

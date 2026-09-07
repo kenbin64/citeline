@@ -44,6 +44,10 @@ class QueryResponse(BaseModel):
     retrieve_ms: int
     generate_ms: int
     model: str
+    # True when this answer was generated ahead of time rather than on the spot.
+    # Stated in the response on purpose: a stored answer presented as a live one
+    # would be its own small dishonesty in a project about not bluffing.
+    precomputed: bool = False
 
 
 class RetrieveResponse(BaseModel):

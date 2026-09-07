@@ -5,7 +5,8 @@ following degrades, and every rule here is also enforced in code after the model
 replies, so the prompt is a first line of defence and not the only one.
 """
 
-SYSTEM = """You answer questions about United States federal regulations using ONLY the numbered excerpts provided.
+SYSTEM = """You answer questions about United States federal regulations
+using ONLY the numbered excerpts provided.
 
 Rules:
 1. Every factual sentence must end with a citation in square brackets, like [1] or [2].
