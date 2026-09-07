@@ -184,9 +184,7 @@ def precompute(
     if questions_file:
         text = Path(questions_file).read_text(encoding="utf-8")
         requested = [
-            line.strip()
-            for line in text.splitlines()
-            if line.strip() and not line.startswith("#")
+            line.strip() for line in text.splitlines() if line.strip() and not line.startswith("#")
         ]
     else:
         requested = list(DEMO_QUESTIONS)

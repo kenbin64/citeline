@@ -48,9 +48,7 @@ def test_document_gate_rejects_short_and_reserved() -> None:
     short = SourceDoc("ecfr", "40 CFR 141.1", "t", "https://x.gov", "v", "tiny")
     assert check_document(short) is not None
 
-    reserved = SourceDoc(
-        "ecfr", "40 CFR 141.63", "[Reserved]", "https://x.gov", "v", "x" * 400
-    )
+    reserved = SourceDoc("ecfr", "40 CFR 141.63", "[Reserved]", "https://x.gov", "v", "x" * 400)
     assert check_document(reserved) is not None
 
     good = SourceDoc("ecfr", "40 CFR 141.62", "Arsenic", "https://x.gov", "v", "x" * 400)

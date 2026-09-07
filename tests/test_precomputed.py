@@ -104,9 +104,7 @@ def test_a_corrupt_store_is_not_an_error(tmp_path, monkeypatch) -> None:
 def test_save_round_trips(tmp_path, monkeypatch) -> None:
     path = tmp_path / "out.json"
     monkeypatch.setattr(precomputed, "store_path", lambda: path)
-    precomputed.save(
-        [{"question": "Q one?", "answer": "A", "abstained": False}], "2025-01-01"
-    )
+    precomputed.save([{"question": "Q one?", "answer": "A", "abstained": False}], "2025-01-01")
     written = json.loads(path.read_text(encoding="utf-8"))
     assert written["corpus_version"] == "2025-01-01"
     assert written["answers"][0]["question"] == "Q one?"

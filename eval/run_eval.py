@@ -248,9 +248,7 @@ async def main() -> int:
         report.answer_rows = [asdict(r) for r in arows]
         print(json.dumps(asum, indent=2))
 
-    Path(args.out).write_text(
-        json.dumps(asdict(report), indent=2, default=str), encoding="utf-8"
-    )
+    Path(args.out).write_text(json.dumps(asdict(report), indent=2, default=str), encoding="utf-8")
     print(f"\nwrote {args.out}")
     await db.close()
     return 0

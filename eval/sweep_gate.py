@@ -25,12 +25,12 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
+from run_eval import load_cases  # noqa: E402
+
 from citeline import db  # noqa: E402
 from citeline.config import settings  # noqa: E402
 from citeline.obs import logging as obslog  # noqa: E402
 from citeline.retrieve.hybrid import retrieve  # noqa: E402
-
-from run_eval import load_cases  # noqa: E402
 
 
 async def main() -> int:
@@ -130,7 +130,7 @@ async def main() -> int:
         best = max(perfect, key=lambda r: (r["answerable_kept"], -r["threshold"]))
         note = "blocks every out of scope question"
     else:
-        best = max(rows, key=lambda r: (r["oos_blocked"] + r["answerable_kept"]))
+        best = max(rows, key=lambda r: r["oos_blocked"] + r["answerable_kept"])
         note = "best total accuracy; no threshold blocks everything"
 
     print(f"\nRecommended min_similarity = {best['threshold']}  ({note})")
